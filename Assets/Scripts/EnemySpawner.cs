@@ -18,20 +18,25 @@ public class EnemySpawner : MonoBehaviour
     public float spawnHeight = 0.5f;
 
     [Header("Procedural Movement Settings")]
-    public float initialSpawnDistance = 15f; // Spawn di luar map
-    public float moveInSpeed = 2f; // Gerak masuk ke map
+    public float initialSpawnDistance = 15f;
+    public float moveInSpeed = 2f;
 
-    [HideInInspector] public int currentWave = 0; // Bisa diakses dari luar tapi gak tampil di Inspector
+    [HideInInspector] public int currentWave = 0;
     private int enemiesSpawned = 0;
     private float timer = 0f;
-
     public bool isSpawningActive = true;
+
+    void Start()
+    {
+        // Initial wave notification
+        if (GameManager.Instance != null)
+            GameManager.Instance.NotifyWaveChanged(currentWave, waves.Length);
+    }
 
     void Update()
     {
         if (!isSpawningActive) return;
 
-        // Selama wave masih ada
         if (currentWave < waves.Length)
         {
             timer += Time.deltaTime;
@@ -48,15 +53,32 @@ public class EnemySpawner : MonoBehaviour
             if (enemiesSpawned >= waves[currentWave].enemyCount &&
                 GameManager.Instance.GetActiveEnemyCount() == 0)
             {
+                // Increment SEBELUM notify
                 currentWave++;
-                enemiesSpawned = 0;
 
                 // Kalau wave terakhir sudah selesai
                 if (currentWave >= waves.Length)
                 {
                     Debug.Log("All waves completed!");
-                    GameManager.Instance.CheckWinCondition();
+
+                    // Notify wave change dengan current (sudah >= length)
+                    if (GameManager.Instance != null)
+                        GameManager.Instance.NotifyWaveChanged(currentWave, waves.Length);
+
                     isSpawningActive = false;
+
+                    // Check win SETELAH semua selesai
+                    GameManager.Instance.CheckWinCondition();
+                }
+                else
+                {
+                    // Masih ada wave lagi
+                    enemiesSpawned = 0;
+                    Debug.Log($"Wave {currentWave + 1}/{waves.Length} starting...");
+
+                    // Notify wave change
+                    if (GameManager.Instance != null)
+                        GameManager.Instance.NotifyWaveChanged(currentWave, waves.Length);
                 }
             }
         }
@@ -81,25 +103,26 @@ public class EnemySpawner : MonoBehaviour
         float angle = Mathf.Atan2(lookDirection.x, lookDirection.z) * Mathf.Rad2Deg;
         enemy.transform.rotation = Quaternion.Euler(0, angle, 0);
 
-        // Efek scale membesar (spawn effect)
+        // Efek scale membesar
         enemy.transform.localScale = Vector3.zero;
         SpawnEffect spawnFX = enemy.AddComponent<SpawnEffect>();
         spawnFX.targetScale = Vector3.one;
         spawnFX.growSpeed = 2f;
 
         enemiesSpawned++;
-        GameManager.Instance.RegisterEnemy(enemy);
+
+        // Register ke GameManager
+        if (GameManager.Instance != null)
+            GameManager.Instance.RegisterEnemy(enemy);
     }
 
-    // Getter biar bisa dipanggil dari UI/GameManager
     public int GetCurrentWave()
     {
         return currentWave;
     }
 }
 
-
-// Component untuk efek spawn (scale up)
+// Component untuk efek spawn
 public class SpawnEffect : MonoBehaviour
 {
     public Vector3 targetScale = Vector3.one;

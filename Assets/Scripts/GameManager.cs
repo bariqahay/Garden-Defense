@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 
 public class GameManager : MonoBehaviour
 {
@@ -15,6 +16,13 @@ public class GameManager : MonoBehaviour
 
     private List<GameObject> activeEnemies = new List<GameObject>();
 
+    // ===== EVENTS FOR UI =====
+    public event Action<int, int> OnWaveChanged;        // (currentWave, totalWaves)
+    public event Action<int> OnEnemyCountChanged;       // (enemyCount)
+    public event Action<int> OnPlantsCountChanged;      // (plantCount)
+    public event Action OnGameWon;
+    public event Action OnGameLost;
+
     void Awake()
     {
         if (Instance == null)
@@ -27,20 +35,34 @@ public class GameManager : MonoBehaviour
     {
         // Find all plants in scene
         plants = FindObjectsByType<PlantHealth>(FindObjectsSortMode.None);
+
+        // Initial UI update
+        UpdateUI();
     }
 
     // Register enemy saat spawn
     public void RegisterEnemy(GameObject enemy)
     {
         if (!activeEnemies.Contains(enemy))
+        {
             activeEnemies.Add(enemy);
+            OnEnemyCountChanged?.Invoke(GetActiveEnemyCount());
+            Debug.Log($"Enemy registered. Total: {GetActiveEnemyCount()}");
+        }
     }
 
     // Unregister enemy saat mati
     public void UnregisterEnemy(GameObject enemy)
     {
         if (activeEnemies.Contains(enemy))
+        {
             activeEnemies.Remove(enemy);
+            OnEnemyCountChanged?.Invoke(GetActiveEnemyCount());
+            Debug.Log($"Enemy unregistered. Remaining: {GetActiveEnemyCount()}");
+
+            // Check win condition after enemy dies
+            CheckWinCondition();
+        }
     }
 
     // Get jumlah enemy yang masih hidup
@@ -57,12 +79,38 @@ public class GameManager : MonoBehaviour
         return plants.Count(p => p != null && p.currentHealth > 0);
     }
 
+    // Call this when wave changes
+    public void NotifyWaveChanged(int currentWave, int totalWaves)
+    {
+        OnWaveChanged?.Invoke(currentWave, totalWaves);
+        Debug.Log($"Wave changed: {currentWave + 1}/{totalWaves}");
+    }
+
+    // Call this when plant count changes
+    public void NotifyPlantsCountChanged()
+    {
+        int aliveCount = GetAlivePlantsCount();
+        OnPlantsCountChanged?.Invoke(aliveCount);
+        Debug.Log($"Plants alive: {aliveCount}");
+    }
+
+    // Update all UI elements
+    public void UpdateUI()
+    {
+        if (spawner != null)
+            OnWaveChanged?.Invoke(spawner.currentWave, spawner.waves.Length);
+
+        OnPlantsCountChanged?.Invoke(GetAlivePlantsCount());
+        OnEnemyCountChanged?.Invoke(GetActiveEnemyCount());
+    }
+
     public void CheckWinCondition()
     {
         if (isGameOver) return;
 
         // Cek apakah ada tanaman yang masih hidup
-        bool hasAlivePlants = plants.Any(p => p != null && p.currentHealth > 0);
+        int alivePlants = GetAlivePlantsCount();
+        bool hasAlivePlants = alivePlants > 0;
 
         // Cek apakah semua wave selesai DAN tidak ada enemy lagi
         if (spawner != null)
@@ -70,14 +118,20 @@ public class GameManager : MonoBehaviour
             bool allWavesComplete = spawner.currentWave >= spawner.waves.Length;
             bool noEnemiesLeft = GetActiveEnemyCount() == 0;
 
+            Debug.Log($"Win Check - Waves:{allWavesComplete} NoEnemies:{noEnemiesLeft} PlantsAlive:{hasAlivePlants} ({alivePlants} plants)");
+
+            // HARUS ADA PLANT YANG HIDUP!
+            if (!hasAlivePlants)
+            {
+                Debug.Log("❌ Cannot win - all plants are dead!");
+                return;
+            }
+
             if (hasAlivePlants && allWavesComplete && noEnemiesLeft)
             {
                 isGameOver = true;
                 Debug.Log("✨ VICTORY! You protected the plants!");
-
-                // Show win screen (nanti kalau UI sudah ada)
-                // if (UIManager.Instance != null)
-                //     UIManager.Instance.ShowWinScreen();
+                OnGameWon?.Invoke();
             }
         }
     }
@@ -89,18 +143,25 @@ public class GameManager : MonoBehaviour
         // Update plants array
         plants = FindObjectsByType<PlantHealth>(FindObjectsSortMode.None);
 
+        // Count plants with HP > 0 (even if they're dying/shrinking)
+        int alivePlants = 0;
+        foreach (PlantHealth plant in plants)
+        {
+            if (plant != null && plant.currentHealth > 0)
+                alivePlants++;
+        }
+
+        Debug.Log($"💀 Lose Check - Total plants in scene: {plants.Length}, Alive: {alivePlants}");
+
         // Cek apakah semua tanaman mati
-        if (plants.Length == 0 || plants.All(p => p.currentHealth <= 0))
+        if (alivePlants == 0)
         {
             isGameOver = true;
             if (spawner != null)
                 spawner.isSpawningActive = false;
 
-            Debug.Log("💀 DEFEAT! All plants are dead!");
-
-            // Show lose screen (nanti kalau UI sudah ada)
-            // if (UIManager.Instance != null)
-            //     UIManager.Instance.ShowLoseScreen();
+            Debug.Log("💀💀💀 DEFEAT! All plants are dead! 💀💀💀");
+            OnGameLost?.Invoke();
         }
     }
 }

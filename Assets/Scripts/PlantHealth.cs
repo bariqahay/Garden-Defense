@@ -7,13 +7,13 @@ public class PlantHealth : MonoBehaviour
     public int currentHealth;
 
     [Header("Visual Transform Settings")]
-    public float minScale = 0.5f; // Skala minimum saat sekarat
+    public float minScale = 0.5f;
     public float scaleSpeed = 2f;
 
     [Header("Color Settings")]
     public Color healthyColor = Color.green;
     public Color damagedColor = Color.yellow;
-    public Color criticalColor = new Color(0.6f, 0.3f, 0f); // Coklat
+    public Color criticalColor = new Color(0.6f, 0.3f, 0f);
     public float colorTransitionSpeed = 3f;
 
     private Vector3 originalScale;
@@ -26,13 +26,17 @@ public class PlantHealth : MonoBehaviour
         currentHealth = maxHealth;
         originalScale = transform.localScale;
         targetScale = originalScale;
-
         plantRenderer = GetComponent<Renderer>();
+
         if (plantRenderer != null)
         {
             currentTargetColor = healthyColor;
             plantRenderer.material.color = healthyColor;
         }
+
+        // Initial notification to GameManager
+        if (GameManager.Instance != null)
+            GameManager.Instance.NotifyPlantsCountChanged();
     }
 
     void Update()
@@ -50,9 +54,11 @@ public class PlantHealth : MonoBehaviour
 
     public void TakeDamage(int amount)
     {
-        // Subtract and clamp to 0 to prevent negative HP
+        // Subtract and clamp to 0
         currentHealth -= amount;
         currentHealth = Mathf.Max(currentHealth, 0);
+
+        Debug.Log($"{gameObject.name} took {amount} damage. Health: {currentHealth}/{maxHealth}");
 
         // Update visual scale
         float healthRatio = (float)currentHealth / (float)maxHealth;
@@ -62,6 +68,10 @@ public class PlantHealth : MonoBehaviour
 
         // Update colour
         UpdateHealthColor(healthRatio);
+
+        // Notify GameManager about plant count change
+        if (GameManager.Instance != null)
+            GameManager.Instance.NotifyPlantsCountChanged();
 
         if (currentHealth <= 0)
         {
@@ -73,7 +83,6 @@ public class PlantHealth : MonoBehaviour
     {
         if (plantRenderer == null) return;
 
-        // Gradient logic with clamped ratio
         if (healthRatio > 0.66f)
         {
             currentTargetColor = Color.Lerp(damagedColor, healthyColor, (healthRatio - 0.66f) / 0.34f);
@@ -90,14 +99,21 @@ public class PlantHealth : MonoBehaviour
 
     void Die()
     {
-        // Start shrink coroutine (it will call GameManager.CheckLoseCondition when destroyed)
+        Debug.Log($"{gameObject.name} has died!");
         StartCoroutine(ShrinkAndDestroy());
     }
 
     System.Collections.IEnumerator ShrinkAndDestroy()
     {
+        // Notify IMMEDIATELY that plant is dead (before visual shrink)
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.NotifyPlantsCountChanged();
+            GameManager.Instance.CheckLoseCondition();
+        }
+
         Vector3 shrinkTarget = Vector3.zero;
-        Color fadeColor = new Color(0.3f, 0.15f, 0f, 0f); // Coklat gelap (fade)
+        Color fadeColor = new Color(0.3f, 0.15f, 0f, 0f);
 
         while (Vector3.Distance(transform.localScale, shrinkTarget) > 0.01f)
         {
@@ -111,8 +127,7 @@ public class PlantHealth : MonoBehaviour
             yield return null;
         }
 
+        // Destroy after animation
         Destroy(gameObject);
-        // After destroying, tell GameManager to check lose condition
-        GameManager.Instance?.CheckLoseCondition();
     }
 }
