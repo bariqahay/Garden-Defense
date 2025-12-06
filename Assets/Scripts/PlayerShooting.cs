@@ -4,23 +4,27 @@ public class PlayerShooting : MonoBehaviour
 {
     [Header("Shooting Settings")]
     public GameObject sprayPrefab;
-    public Transform spawnPoint; // Posisi spawn spray (di depan player)
+    public Transform spawnPoint;
     public float shootCooldown = 0.3f;
 
-    [Header("Shader Effect")]
-    public float shootFlashIntensity = 2f;
-    public float shootFlashDuration = 0.1f;
+    [Header("Shader Effect Settings")]
+    public bool useCustomShader = true;
+    public float shootFlashDuration = 0.15f;
 
     private float shootTimer = 0f;
-    private Renderer playerRenderer;
-    private Color originalColor;
+    private PlayerShaderController shaderController;
 
     void Start()
     {
-        playerRenderer = GetComponent<Renderer>();
-        if (playerRenderer != null)
+        // Setup custom shader controller
+        if (useCustomShader)
         {
-            originalColor = playerRenderer.material.color;
+            shaderController = GetComponent<PlayerShaderController>();
+            if (shaderController == null)
+            {
+                shaderController = gameObject.AddComponent<PlayerShaderController>();
+                Debug.Log("[PlayerShooting] Added PlayerShaderController component");
+            }
         }
     }
 
@@ -39,31 +43,16 @@ public class PlayerShooting : MonoBehaviour
     {
         // Spawn spray di depan player
         Vector3 spawnPos = spawnPoint != null ? spawnPoint.position : transform.position + transform.forward;
-
-        // MANUAL ROTASI: Spray menghadap arah player
         Quaternion spawnRot = transform.rotation;
 
         GameObject spray = Instantiate(sprayPrefab, spawnPos, spawnRot);
 
-        // Shader flash effect (emissive boost)
-        StartCoroutine(ShootFlash());
-    }
+        Debug.Log($"[PlayerShooting] Spawned spray at {spawnPos}");
 
-    System.Collections.IEnumerator ShootFlash()
-    {
-        // SHADER EFFECT: Player menyala saat shoot
-        if (playerRenderer != null && playerRenderer.material != null)
+        // Trigger custom shader glow effect
+        if (useCustomShader && shaderController != null)
         {
-            Color flashColor = originalColor * shootFlashIntensity;
-            playerRenderer.material.color = flashColor;
-        }
-
-        yield return new WaitForSeconds(shootFlashDuration);
-
-        // Kembali ke warna normal
-        if (playerRenderer != null && playerRenderer.material != null)
-        {
-            playerRenderer.material.color = originalColor;
+            shaderController.TriggerShootGlow(shootFlashDuration);
         }
     }
 }

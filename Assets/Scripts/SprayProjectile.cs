@@ -1,47 +1,53 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 public class SprayProjectile : MonoBehaviour
 {
     [Header("Movement Settings")]
     public float moveSpeed = 10f;
-    public float lifetime = 2f; // Hidup 2 detik
+    public float lifetime = 2f;
 
     [Header("Scale Settings")]
     public Vector3 startScale = Vector3.one;
-    public Vector3 endScale = Vector3.one * 0.2f; // Mengecil ke 20%
+    public Vector3 endScale = Vector3.one * 0.2f;
     public AnimationCurve scaleCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
 
     [Header("Damage Settings")]
     public int damage = 1;
     public string enemyTag = "Enemy";
 
+    [Header("Shader Settings")]
+    public bool useShaderDissolve = true; // Toggle shader dissolve
+
     private float currentLifetime = 0f;
     private Vector3 moveDirection;
     private Rigidbody rb;
+    private SprayShaderController shaderController;
 
     void Start()
     {
-        // Set initial scale
         transform.localScale = startScale;
-
-        // Forward direction (dari rotasi saat spawn)
         moveDirection = transform.forward;
-
-        // Try to get a Rigidbody if present (recommended)
         rb = GetComponent<Rigidbody>();
+
+        // Setup shader controller
+        shaderController = GetComponent<SprayShaderController>();
+        if (shaderController == null && useShaderDissolve)
+        {
+            shaderController = gameObject.AddComponent<SprayShaderController>();
+            Debug.Log("[Spray] Added SprayShaderController component");
+        }
 
         Debug.Log($"[Spray] Spawned at {transform.position:F3} dir {moveDirection} lifetime {lifetime}s damage {damage}");
 
-        // Safety: if no Rigidbody, warn (OnTrigger requires at least one Rigidbody in the collision pair)
         if (rb == null)
         {
-            Debug.LogWarning("[Spray] No Rigidbody on spray prefab. Recommended: add Rigidbody (isKinematic = true) and set collider.IsTrigger = true.");
+            Debug.LogWarning("[Spray] No Rigidbody on spray prefab. Recommended: add Rigidbody (isKinematic = true)");
         }
     }
 
     void Update()
     {
-        // Movement: prefer Rigidbody if available (more reliable with physics)
+        // Movement
         if (rb != null)
         {
             rb.MovePosition(rb.position + moveDirection * moveSpeed * Time.deltaTime);
@@ -53,37 +59,55 @@ public class SprayProjectile : MonoBehaviour
 
         // Update lifetime
         currentLifetime += Time.deltaTime;
+        float lifeRatio = Mathf.Clamp01(currentLifetime / lifetime);
 
         // Scale over life
-        float lifeRatio = Mathf.Clamp01(currentLifetime / lifetime);
         float scaleMultiplier = scaleCurve.Evaluate(lifeRatio);
         transform.localScale = Vector3.Lerp(endScale, startScale, scaleMultiplier);
 
+        // Update shader dissolve based on lifetime
+        if (useShaderDissolve && shaderController != null)
+        {
+            // Start dissolving in last 30% of lifetime
+            if (lifeRatio > 0.7f)
+            {
+                float dissolveProgress = (lifeRatio - 0.7f) / 0.3f;
+                shaderController.SetDissolveAmount(dissolveProgress);
+            }
+        }
+
+        // Destroy when lifetime ends
         if (currentLifetime >= lifetime)
         {
             Debug.Log("[Spray] Lifetime expired, destroying.");
-            Destroy(gameObject);
+
+            // Trigger dissolve animation before destroy (if not already dissolving)
+            if (useShaderDissolve && shaderController != null && !shaderController.IsDissolving)
+            {
+                shaderController.StartDissolve();
+                // Let shader controller handle destruction
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
         }
     }
 
     void OnTriggerEnter(Collider other)
     {
-        // Debug everything for clarity
         Debug.Log($"[Spray] OnTriggerEnter with {other.name} (tag: {other.tag})");
 
-        // Check tag first (fast)
         if (!other.CompareTag(enemyTag))
         {
-            // if it's environment or player, just ignore
             Debug.Log($"[Spray] Hit non-enemy: {other.name}");
             return;
         }
 
-        // It's tagged Enemy
         EnemyFly enemy = other.GetComponent<EnemyFly>();
         if (enemy != null)
         {
-            Debug.Log($"[Spray] HIT enemy: {other.name} — applying damage {damage}");
+            Debug.Log($"[Spray] HIT enemy: {other.name} â€” applying damage {damage}");
             enemy.TakeDamage(damage);
         }
         else
@@ -91,21 +115,28 @@ public class SprayProjectile : MonoBehaviour
             Debug.LogWarning($"[Spray] Hit object tagged 'Enemy' but no EnemyFly found on {other.name}");
         }
 
-        // Destroy spray after hitting anything relevant
-        Destroy(gameObject);
+        // Quick dissolve on hit
+        if (useShaderDissolve && shaderController != null)
+        {
+            shaderController.dissolveSpeed = 5f; // Faster dissolve on impact
+            shaderController.StartDissolve();
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 
-    // Extra safety if someone uses non-trigger colliders
     void OnCollisionEnter(Collision collision)
     {
         Debug.Log($"[Spray] OnCollisionEnter with {collision.collider.name} (tag: {collision.collider.tag})");
-        // optional: replicate trigger logic for robustness
+
         if (collision.collider.CompareTag(enemyTag))
         {
             EnemyFly enemy = collision.collider.GetComponent<EnemyFly>();
             if (enemy != null)
             {
-                Debug.Log($"[Spray] COLLISION HIT enemy: {collision.collider.name} — applying damage {damage}");
+                Debug.Log($"[Spray] COLLISION HIT enemy: {collision.collider.name} â€” applying damage {damage}");
                 enemy.TakeDamage(damage);
             }
             else
@@ -114,6 +145,14 @@ public class SprayProjectile : MonoBehaviour
             }
         }
 
-        Destroy(gameObject);
+        if (useShaderDissolve && shaderController != null)
+        {
+            shaderController.dissolveSpeed = 5f;
+            shaderController.StartDissolve();
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
     }
 }
