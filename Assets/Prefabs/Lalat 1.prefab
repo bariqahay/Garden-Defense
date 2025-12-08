@@ -57,8 +57,11 @@ MonoBehaviour:
   hitFlashDuration: 0.2
   emissionIntensity: 2
   buzzClip: {fileID: 8300000, guid: 3fd00603dc1c39343bc48490172c15bc, type: 3}
-  buzzVolume: 0.5
+  buzzVolume: 0.803
   loopBuzz: 1
+  hitSound: {fileID: 8300000, guid: d9c42e969738d904d9e6c8a9bf515cd1, type: 3}
+  deathSound: {fileID: 8300000, guid: 572db63261fcb1c45a0d6988058cab02, type: 3}
+  sfxVolume: 1
 --- !u!136 &5796912784428150759
 CapsuleCollider:
   m_ObjectHideFlags: 0

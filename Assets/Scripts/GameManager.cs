@@ -36,6 +36,12 @@ public class GameManager : MonoBehaviour
         // Find all plants in scene
         plants = FindObjectsByType<PlantHealth>(FindObjectsSortMode.None);
 
+        // Play gameplay music
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlayGameplayMusic();
+        }
+
         // Initial UI update
         UpdateUI();
     }
@@ -112,25 +118,34 @@ public class GameManager : MonoBehaviour
         int alivePlants = GetAlivePlantsCount();
         bool hasAlivePlants = alivePlants > 0;
 
+        // HARUS ADA PLANT YANG HIDUP dulu
+        if (!hasAlivePlants)
+        {
+            Debug.Log("❌ Cannot win - all plants are dead!");
+            return;
+        }
+
         // Cek apakah semua wave selesai DAN tidak ada enemy lagi
         if (spawner != null)
         {
             bool allWavesComplete = spawner.currentWave >= spawner.waves.Length;
+            bool isSpawningFinished = !spawner.isSpawningActive; // IMPORTANT: Cek spawning sudah selesai
             bool noEnemiesLeft = GetActiveEnemyCount() == 0;
 
-            Debug.Log($"Win Check - Waves:{allWavesComplete} NoEnemies:{noEnemiesLeft} PlantsAlive:{hasAlivePlants} ({alivePlants} plants)");
+            Debug.Log($"Win Check - Waves:{allWavesComplete} SpawningDone:{isSpawningFinished} NoEnemies:{noEnemiesLeft} PlantsAlive:{hasAlivePlants} ({alivePlants} plants)");
 
-            // HARUS ADA PLANT YANG HIDUP!
-            if (!hasAlivePlants)
-            {
-                Debug.Log("❌ Cannot win - all plants are dead!");
-                return;
-            }
-
-            if (hasAlivePlants && allWavesComplete && noEnemiesLeft)
+            // WIN CONDITION: Semua wave selesai + spawning selesai + tidak ada enemy + plant masih hidup
+            if (hasAlivePlants && allWavesComplete && isSpawningFinished && noEnemiesLeft)
             {
                 isGameOver = true;
-                Debug.Log("✨ VICTORY! You protected the plants!");
+                Debug.Log("✨✨✨ VICTORY! You protected the plants! ✨✨✨");
+
+                // Play win music
+                if (AudioManager.Instance != null)
+                {
+                    AudioManager.Instance.PlayWinMusic();
+                }
+
                 OnGameWon?.Invoke();
             }
         }
@@ -157,6 +172,8 @@ public class GameManager : MonoBehaviour
         if (alivePlants == 0)
         {
             isGameOver = true;
+
+            // Stop spawning kalau masih aktif
             if (spawner != null)
                 spawner.isSpawningActive = false;
 

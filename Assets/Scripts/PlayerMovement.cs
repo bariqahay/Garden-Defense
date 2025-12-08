@@ -6,6 +6,19 @@ public class PlayerMovement : MonoBehaviour
     public float speed = 5f;
     public float rotationSpeed = 720f;
 
+    [Header("Input Settings")]
+    [Tooltip("Auto-detect input mode atau force manual")]
+    public InputMode inputMode = InputMode.AutoDetect;
+
+    [Tooltip("Deadzone untuk joystick (0-1)")]
+    public float joystickDeadzone = 0.2f;
+
+    [Tooltip("Sensitivity untuk rotation pake controller")]
+    public float controllerRotationSpeed = 360f;
+
+    [Tooltip("Kalau right stick idle, rotate ke arah movement")]
+    public bool rotateToMovementWhenIdle = false;
+
     [Header("Boundary Settings")]
     [Tooltip("Enable/disable boundary limit")]
     public bool useBoundary = true;
@@ -31,18 +44,29 @@ public class PlayerMovement : MonoBehaviour
     public float collisionCheckDistance = 0.1f;
 
     [Tooltip("Layer yang bakal di-detect sebagai obstacle")]
-    public LayerMask collisionLayers = -1; // Default: semua layer
+    public LayerMask collisionLayers = -1;
 
     [Header("Debug")]
     public bool showBoundaryGizmos = true;
     public bool showCollisionGizmos = true;
     public bool logBoundaryHits = false;
     public bool logCollisionHits = false;
+    public bool showInputDebug = false;
 
     private Animator animator;
     private Camera mainCam;
     private Vector3 minBounds;
     private Vector3 maxBounds;
+    private InputMode currentInputMode;
+    private Vector3 lastAimDirection;
+    private Vector3 currentMovementDirection;
+
+    public enum InputMode
+    {
+        AutoDetect,
+        KeyboardMouse,
+        Controller
+    }
 
     void Start()
     {
@@ -60,10 +84,27 @@ public class PlayerMovement : MonoBehaviour
         {
             collisionRadius = capsule.radius;
         }
+
+        // Initialize aim direction
+        lastAimDirection = transform.forward;
+        currentMovementDirection = Vector3.zero;
+
+        // Set initial input mode
+        currentInputMode = inputMode;
+        if (inputMode == InputMode.AutoDetect)
+        {
+            currentInputMode = InputMode.KeyboardMouse; // Default
+        }
     }
 
     void Update()
     {
+        // Auto-detect input mode
+        if (inputMode == InputMode.AutoDetect)
+        {
+            DetectInputMode();
+        }
+
         // Update camera bounds setiap frame
         if (useCameraBoundary && mainCam != null)
         {
@@ -72,6 +113,52 @@ public class PlayerMovement : MonoBehaviour
 
         HandleMovement();
         HandleRotation();
+
+        if (showInputDebug)
+        {
+            Debug.Log($"🎮 Input Mode: {currentInputMode} | Aim: {lastAimDirection}");
+        }
+    }
+
+    void DetectInputMode()
+    {
+        // Detect controller input (with safety check)
+        float rightStickH = 0f;
+        float rightStickV = 0f;
+
+        try
+        {
+            rightStickH = Input.GetAxis("RightStickHorizontal");
+            rightStickV = Input.GetAxis("RightStickVertical");
+        }
+        catch (System.ArgumentException)
+        {
+            // Axis belum di-setup, skip controller detection
+            if (currentInputMode != InputMode.KeyboardMouse)
+            {
+                currentInputMode = InputMode.KeyboardMouse;
+            }
+            return;
+        }
+
+        // Kalo ada input dari right stick, switch ke controller
+        if (Mathf.Abs(rightStickH) > joystickDeadzone || Mathf.Abs(rightStickV) > joystickDeadzone)
+        {
+            if (currentInputMode != InputMode.Controller)
+            {
+                currentInputMode = InputMode.Controller;
+                if (showInputDebug) Debug.Log("🎮 Switched to CONTROLLER mode");
+            }
+        }
+        // Kalo mouse gerak, switch ke keyboard/mouse
+        else if (Input.GetAxis("Mouse X") != 0 || Input.GetAxis("Mouse Y") != 0)
+        {
+            if (currentInputMode != InputMode.KeyboardMouse)
+            {
+                currentInputMode = InputMode.KeyboardMouse;
+                if (showInputDebug) Debug.Log("⌨️ Switched to KEYBOARD/MOUSE mode");
+            }
+        }
     }
 
     void UpdateCameraBounds()
@@ -103,6 +190,7 @@ public class PlayerMovement : MonoBehaviour
         float verticalInput = Input.GetAxis("Vertical");
 
         Vector3 movementDirection = new Vector3(horizontalInput, 0, verticalInput).normalized;
+        currentMovementDirection = movementDirection; // Save untuk rotation fallback
 
         if (movementDirection.magnitude > 0.1f)
         {
@@ -139,48 +227,64 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    Vector3 CheckAndResolveCollision(Vector3 currentPos, Vector3 moveVector, Vector3 targetPos)
-    {
-        // SphereCast: cek ada obstacle di arah gerak
-        float distance = moveVector.magnitude + collisionCheckDistance;
-        Vector3 direction = moveVector.normalized;
-
-        // Offset height buat spherecast dari center player
-        Vector3 castOrigin = currentPos + Vector3.up * collisionRadius;
-
-        if (Physics.SphereCast(castOrigin, collisionRadius, direction, out RaycastHit hit, distance, collisionLayers))
-        {
-            if (logCollisionHits)
-            {
-                Debug.Log($"💥 COLLISION DETECTED with: {hit.collider.gameObject.name}");
-            }
-
-            // SLIDING: coba gerak sepanjang surface yang di-hit
-            Vector3 slideDirection = Vector3.ProjectOnPlane(direction, hit.normal).normalized;
-            Vector3 slideMove = slideDirection * moveVector.magnitude;
-
-            // Cek lagi apakah slide movement aman
-            Vector3 slideTarget = currentPos + slideMove;
-            Vector3 slideCastOrigin = currentPos + Vector3.up * collisionRadius;
-
-            if (!Physics.SphereCast(slideCastOrigin, collisionRadius, slideMove.normalized, out _, slideMove.magnitude + collisionCheckDistance, collisionLayers))
-            {
-                // Slide movement aman, pake itu
-                return slideTarget;
-            }
-
-            // Kalo slide juga nabrak, stay di tempat
-            return currentPos;
-        }
-
-        // Ga ada collision, aman
-        return targetPos;
-    }
-
     void HandleRotation()
     {
         if (mainCam == null) return;
 
+        Vector3 aimDirection = Vector3.zero;
+
+        // PILIH INPUT MODE
+        if (currentInputMode == InputMode.KeyboardMouse ||
+            (inputMode == InputMode.AutoDetect && currentInputMode == InputMode.KeyboardMouse))
+        {
+            // ========== MOUSE AIM ==========
+            aimDirection = GetMouseAimDirection();
+
+            // Mouse ALWAYS rotate (kecuali mouse ga gerak sama sekali)
+            if (aimDirection.sqrMagnitude > 0.001f)
+            {
+                lastAimDirection = aimDirection;
+                Quaternion targetRotation = Quaternion.LookRotation(aimDirection);
+                transform.rotation = Quaternion.RotateTowards(
+                    transform.rotation,
+                    targetRotation,
+                    rotationSpeed * Time.deltaTime
+                );
+            }
+        }
+        else
+        {
+            // ========== CONTROLLER AIM (RIGHT STICK) ==========
+            aimDirection = GetControllerAimDirection();
+
+            if (aimDirection.sqrMagnitude > 0.001f)
+            {
+                // RIGHT STICK ADA INPUT → Rotate ke arah stick
+                lastAimDirection = aimDirection;
+                Quaternion targetRotation = Quaternion.LookRotation(aimDirection);
+                transform.rotation = Quaternion.RotateTowards(
+                    transform.rotation,
+                    targetRotation,
+                    controllerRotationSpeed * Time.deltaTime
+                );
+            }
+            else if (rotateToMovementWhenIdle && currentMovementDirection.sqrMagnitude > 0.1f)
+            {
+                // RIGHT STICK IDLE + opsi rotateToMovement ON → Rotate ke arah movement
+                Quaternion targetRotation = Quaternion.LookRotation(currentMovementDirection);
+                transform.rotation = Quaternion.RotateTowards(
+                    transform.rotation,
+                    targetRotation,
+                    controllerRotationSpeed * Time.deltaTime
+                );
+                lastAimDirection = currentMovementDirection;
+            }
+            // Else: RIGHT STICK IDLE + rotateToMovement OFF → KEEP last rotation (twin-stick shooter style)
+        }
+    }
+
+    Vector3 GetMouseAimDirection()
+    {
         Vector3 mousePos = Input.mousePosition;
         mousePos.x = Mathf.Clamp(mousePos.x, 0, Screen.width);
         mousePos.y = Mathf.Clamp(mousePos.y, 0, Screen.height);
@@ -193,17 +297,72 @@ public class PlayerMovement : MonoBehaviour
             Vector3 pointToLook = ray.GetPoint(rayDistance);
             Vector3 lookDirection = (pointToLook - transform.position).normalized;
             lookDirection.y = 0;
-
-            if (lookDirection.sqrMagnitude > 0.001f)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
-                transform.rotation = Quaternion.RotateTowards(
-                    transform.rotation,
-                    targetRotation,
-                    rotationSpeed * Time.deltaTime
-                );
-            }
+            return lookDirection;
         }
+
+        return Vector3.zero;
+    }
+
+    Vector3 GetControllerAimDirection()
+    {
+        // Right Stick Input (untuk aiming)
+        float rightH = 0f;
+        float rightV = 0f;
+
+        try
+        {
+            rightH = Input.GetAxis("RightStickHorizontal");
+            rightV = Input.GetAxis("RightStickVertical");
+        }
+        catch (System.ArgumentException)
+        {
+            // Axis belum di-setup, return zero
+            return Vector3.zero;
+        }
+
+        // Apply deadzone
+        if (Mathf.Abs(rightH) < joystickDeadzone) rightH = 0;
+        if (Mathf.Abs(rightV) < joystickDeadzone) rightV = 0;
+
+        // Kalo ada input dari right stick
+        if (Mathf.Abs(rightH) > 0.01f || Mathf.Abs(rightV) > 0.01f)
+        {
+            Vector3 aimDir = new Vector3(rightH, 0, rightV).normalized;
+            return aimDir;
+        }
+
+        // Kalo ga ada input, return zero (bukan lastAimDirection)
+        return Vector3.zero;
+    }
+
+    Vector3 CheckAndResolveCollision(Vector3 currentPos, Vector3 moveVector, Vector3 targetPos)
+    {
+        float distance = moveVector.magnitude + collisionCheckDistance;
+        Vector3 direction = moveVector.normalized;
+        Vector3 castOrigin = currentPos + Vector3.up * collisionRadius;
+
+        if (Physics.SphereCast(castOrigin, collisionRadius, direction, out RaycastHit hit, distance, collisionLayers))
+        {
+            if (logCollisionHits)
+            {
+                Debug.Log($"💥 COLLISION DETECTED with: {hit.collider.gameObject.name}");
+            }
+
+            // SLIDING
+            Vector3 slideDirection = Vector3.ProjectOnPlane(direction, hit.normal).normalized;
+            Vector3 slideMove = slideDirection * moveVector.magnitude;
+            Vector3 slideTarget = currentPos + slideMove;
+            Vector3 slideCastOrigin = currentPos + Vector3.up * collisionRadius;
+
+            if (!Physics.SphereCast(slideCastOrigin, collisionRadius, slideMove.normalized, out _, slideMove.magnitude + collisionCheckDistance, collisionLayers))
+            {
+                return slideTarget;
+            }
+
+            return currentPos;
+        }
+
+        return targetPos;
     }
 
     Vector3 ClampToCameraBounds(Vector3 pos)
@@ -240,7 +399,6 @@ public class PlayerMovement : MonoBehaviour
 
     void OnDrawGizmos()
     {
-        // Draw boundary gizmos
         if (showBoundaryGizmos && useBoundary)
         {
             if (useCameraBoundary && Application.isPlaying && mainCam != null)
@@ -285,11 +443,21 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // Draw collision radius
         if (showCollisionGizmos && useCollisionDetection && Application.isPlaying)
         {
             Gizmos.color = new Color(1f, 0f, 0f, 0.3f);
             Gizmos.DrawWireSphere(transform.position + Vector3.up * collisionRadius, collisionRadius);
+
+            // Draw aim direction (GREEN = current aim)
+            Gizmos.color = Color.green;
+            Gizmos.DrawRay(transform.position + Vector3.up * 0.5f, lastAimDirection * 2f);
+
+            // Draw movement direction (YELLOW = movement)
+            if (currentMovementDirection.sqrMagnitude > 0.1f)
+            {
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawRay(transform.position + Vector3.up * 0.3f, currentMovementDirection * 1.5f);
+            }
         }
     }
 
@@ -300,5 +468,6 @@ public class PlayerMovement : MonoBehaviour
         cameraEdgeOffset = Mathf.Max(0, cameraEdgeOffset);
         collisionRadius = Mathf.Max(0.1f, collisionRadius);
         collisionCheckDistance = Mathf.Max(0.01f, collisionCheckDistance);
+        joystickDeadzone = Mathf.Clamp01(joystickDeadzone);
     }
 }

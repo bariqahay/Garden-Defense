@@ -82,6 +82,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
   speed: 5
   rotationSpeed: 720
+  inputMode: 0
+  joystickDeadzone: 0.2
+  controllerRotationSpeed: 360
+  rotateToMovementWhenIdle: 0
   useBoundary: 1
   useCameraBoundary: 0
   cameraEdgeOffset: 1
@@ -97,6 +101,7 @@ MonoBehaviour:
   showCollisionGizmos: 1
   logBoundaryHits: 0
   logCollisionHits: 0
+  showInputDebug: 0
 --- !u!95 &4321397017534423064
 Animator:
   serializedVersion: 7

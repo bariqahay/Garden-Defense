@@ -19,7 +19,7 @@ public class EnemyFly : MonoBehaviour
     [Header("Hit Effect Settings")]
     public Color hitColor = Color.red;
     public float hitFlashDuration = 0.2f;
-    public float emissionIntensity = 2f; // Brightness of flash
+    public float emissionIntensity = 2f;
     private Color originalColor;
     private Color originalEmission;
     private bool hadEmission = false;
@@ -27,16 +27,22 @@ public class EnemyFly : MonoBehaviour
     // Custom shader controller
     private EnemyHitShaderController shaderController;
 
-    // -------------------- SOUND SECTION (FIXED) --------------------
+    // -------------------- SOUND SECTION --------------------
     [Header("Sound Settings")]
-    public AudioClip buzzClip; // Assign your buzz sound here in Inspector
+    public AudioClip buzzClip; // Buzz sound saat terbang
     [Range(0f, 1f)]
     public float buzzVolume = 0.5f;
     public bool loopBuzz = true;
 
+    [Header("SFX Settings")]
+    public AudioClip hitSound; // Sound saat kena damage
+    public AudioClip deathSound; // Sound saat mati
+    [Range(0f, 1f)]
+    public float sfxVolume = 1f;
+
     private AudioSource buzzSource;
     private bool isMoving = false;
-    // ---------------------------------------------------------------
+    // -------------------------------------------------------
 
     private Transform targetPlant;
     private PlantHealth targetPlantHealth;
@@ -47,14 +53,14 @@ public class EnemyFly : MonoBehaviour
     {
         buzzSource = GetComponent<AudioSource>();
 
-        // Configure AudioSource
+        // Configure AudioSource for buzz
         if (buzzSource != null)
         {
             buzzSource.clip = buzzClip;
             buzzSource.loop = loopBuzz;
             buzzSource.volume = buzzVolume;
             buzzSource.playOnAwake = false;
-            buzzSource.spatialBlend = 1f; // 3D sound (optional, set to 0 for 2D)
+            buzzSource.spatialBlend = 1f; // 3D sound
         }
     }
 
@@ -66,7 +72,6 @@ public class EnemyFly : MonoBehaviour
         shaderController = GetComponent<EnemyHitShaderController>();
         if (shaderController == null)
         {
-            // Tambahkan component jika belum ada
             shaderController = gameObject.AddComponent<EnemyHitShaderController>();
             shaderController.hitFlashColor = hitColor;
             shaderController.flashDuration = hitFlashDuration;
@@ -87,13 +92,11 @@ public class EnemyFly : MonoBehaviour
             FindNearestPlant();
             if (!HasValidTarget())
             {
-                // No target = not moving
                 UpdateBuzzSound(false);
                 return;
             }
         }
 
-        // Check if we're actually moving (have a valid target to move to)
         bool shouldMove = HasValidTarget();
 
         if (shouldMove)
@@ -103,29 +106,24 @@ public class EnemyFly : MonoBehaviour
             TryAttackPlant();
         }
 
-        // Update sound based on movement state
         UpdateBuzzSound(shouldMove);
     }
 
-    // -------------------- SOUND LOGIC (SIMPLIFIED & FIXED) --------------------
     void UpdateBuzzSound(bool moving)
     {
         if (buzzSource == null || buzzClip == null) return;
 
         isMoving = moving;
 
-        // Play sound if moving and not already playing
         if (isMoving && !buzzSource.isPlaying)
         {
             buzzSource.Play();
         }
-        // Stop sound if not moving and currently playing
         else if (!isMoving && buzzSource.isPlaying)
         {
             buzzSource.Stop();
         }
     }
-    // -------------------------------------------------------------------------
 
     bool HasValidTarget()
     {
@@ -235,6 +233,12 @@ public class EnemyFly : MonoBehaviour
         currentHealth -= damageAmount;
         currentHealth = Mathf.Max(currentHealth, 0);
 
+        // Play hit sound via AudioManager
+        if (AudioManager.Instance != null && hitSound != null)
+        {
+            AudioManager.Instance.PlaySFX(hitSound, sfxVolume);
+        }
+
         if (!isFlashing)
             StartCoroutine(HitFlash());
 
@@ -250,11 +254,6 @@ public class EnemyFly : MonoBehaviour
         if (shaderController != null)
         {
             shaderController.TriggerHitFlash();
-            Debug.Log("Custom shader hit flash triggered!");
-        }
-        else
-        {
-            Debug.LogWarning("Shader controller not found!");
         }
 
         yield return new WaitForSeconds(hitFlashDuration);
@@ -264,7 +263,13 @@ public class EnemyFly : MonoBehaviour
 
     public void Die()
     {
-        // Stop buzz sound immediately when dying
+        // Play death sound via AudioManager
+        if (AudioManager.Instance != null && deathSound != null)
+        {
+            AudioManager.Instance.PlaySFX(deathSound, sfxVolume);
+        }
+
+        // Stop buzz sound immediately
         if (buzzSource != null && buzzSource.isPlaying)
         {
             buzzSource.Stop();
@@ -293,7 +298,6 @@ public class EnemyFly : MonoBehaviour
 
     void OnDestroy()
     {
-        // Ensure audio stops on destroy
         if (buzzSource != null && buzzSource.isPlaying)
         {
             buzzSource.Stop();

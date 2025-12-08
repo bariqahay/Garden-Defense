@@ -11,7 +11,13 @@ public class PlantHealth : MonoBehaviour
     public float scaleSpeed = 2f;
 
     [Header("Shader Settings")]
-    public bool useCustomShader = true; // Toggle custom shader
+    public bool useCustomShader = true;
+
+    [Header("Audio Settings")]
+    public AudioClip damageSound; // Sound saat kena damage
+    public AudioClip deathSound; // Sound saat mati
+    [Range(0f, 1f)]
+    public float sfxVolume = 1f;
 
     private Vector3 originalScale;
     private Vector3 targetScale;
@@ -56,6 +62,12 @@ public class PlantHealth : MonoBehaviour
 
         Debug.Log($"{gameObject.name} took {amount} damage. Health: {currentHealth}/{maxHealth}");
 
+        // Play damage sound via AudioManager (only if not dead)
+        if (currentHealth > 0 && AudioManager.Instance != null && damageSound != null)
+        {
+            AudioManager.Instance.PlaySFX(damageSound, sfxVolume);
+        }
+
         // Calculate health ratio
         float healthRatio = (float)currentHealth / (float)maxHealth;
         healthRatio = Mathf.Clamp01(healthRatio);
@@ -83,6 +95,13 @@ public class PlantHealth : MonoBehaviour
     void Die()
     {
         Debug.Log($"{gameObject.name} has died!");
+
+        // Play death sound via AudioManager
+        if (AudioManager.Instance != null && deathSound != null)
+        {
+            AudioManager.Instance.PlaySFX(deathSound, sfxVolume);
+        }
+
         StartCoroutine(ShrinkAndDestroy());
     }
 

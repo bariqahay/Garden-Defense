@@ -1,6 +1,8 @@
 using UnityEngine;
 using TMPro;
 using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 using System.Collections;
 
 public class UIManager : MonoBehaviour
@@ -11,6 +13,8 @@ public class UIManager : MonoBehaviour
     public GameObject gameHUD;
     public GameObject winPanel;
     public GameObject losePanel;
+    public GameObject pauseMenu;
+    public GameObject confirmDialog;
 
     [Header("HUD Elements")]
     public TextMeshProUGUI waveText;
@@ -31,6 +35,13 @@ public class UIManager : MonoBehaviour
     public AudioClip loseSound;
     private AudioSource audioSource;
 
+    [Header("Controller Support")]
+    public Button pauseMenuFirstButton; // Button "Resume" di pause menu
+    public Button winPanelFirstButton;  // Button "Restart" di win panel
+    public Button losePanelFirstButton; // Button "Retry" di lose panel
+
+    private bool isPaused = false;
+
     void Awake()
     {
         if (Instance == null)
@@ -38,7 +49,6 @@ public class UIManager : MonoBehaviour
         else
             Destroy(gameObject);
 
-        // Get or add AudioSource
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
             audioSource = gameObject.AddComponent<AudioSource>();
@@ -46,7 +56,7 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
-        // Hide panels dengan set alpha 0 (untuk fade in animation)
+        // Hide panels
         if (winPanel != null)
         {
             winPanel.SetActive(false);
@@ -57,10 +67,14 @@ public class UIManager : MonoBehaviour
             losePanel.SetActive(false);
             SetPanelAlpha(losePanel, 0f);
         }
+        if (pauseMenu != null)
+            pauseMenu.SetActive(false);
+        if (confirmDialog != null)
+            confirmDialog.SetActive(false);
         if (gameHUD != null)
             gameHUD.SetActive(true);
 
-        // Subscribe to events
+        // Subscribe to game events
         if (GameManager.Instance != null)
         {
             GameManager.Instance.OnWaveChanged += UpdateWaveHUD;
@@ -68,6 +82,18 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.OnPlantsCountChanged += UpdatePlantsHUD;
             GameManager.Instance.OnGameWon += ShowWinScreen;
             GameManager.Instance.OnGameLost += ShowLoseScreen;
+        }
+    }
+
+    void Update()
+    {
+        // Pause Input: ESC (keyboard) atau Start button (joystick button 7)
+        if (Input.GetButtonDown("Cancel") || Input.GetKeyDown(KeyCode.Joystick1Button7))
+        {
+            if (GameManager.Instance != null && !GameManager.Instance.isGameOver)
+            {
+                TogglePause();
+            }
         }
     }
 
@@ -96,7 +122,6 @@ public class UIManager : MonoBehaviour
         {
             plantsAliveText.text = $"Plants: {plantsAlive}";
 
-            // Color warning saat plants hampir habis
             if (plantsAlive <= 2)
                 plantsAliveText.color = Color.red;
             else if (plantsAlive <= 4)
@@ -115,7 +140,7 @@ public class UIManager : MonoBehaviour
     // ========== WIN/LOSE SCREENS ==========
     public void ShowWinScreen()
     {
-        StartCoroutine(ShowPanelWithAnimation(winPanel, true));
+        StartCoroutine(ShowPanelWithAnimation(winPanel, winPanelFirstButton, true));
 
         if (winSound != null && audioSource != null)
             audioSource.PlayOneShot(winSound);
@@ -123,38 +148,38 @@ public class UIManager : MonoBehaviour
 
     public void ShowLoseScreen()
     {
-        StartCoroutine(ShowPanelWithAnimation(losePanel, false));
+        StartCoroutine(ShowPanelWithAnimation(losePanel, losePanelFirstButton, false));
 
         if (loseSound != null && audioSource != null)
             audioSource.PlayOneShot(loseSound);
     }
 
-    IEnumerator ShowPanelWithAnimation(GameObject panel, bool isWin)
+    IEnumerator ShowPanelWithAnimation(GameObject panel, Button firstButton, bool isWin)
     {
-        // Wait delay
         yield return new WaitForSecondsRealtime(delayBeforeShow);
 
-        // Hide HUD
         if (gameHUD != null)
             gameHUD.SetActive(false);
 
-        // Show panel
         if (panel != null)
         {
             panel.SetActive(true);
 
-            // Update final score
             if (finalScoreText != null && GameManager.Instance != null)
             {
                 int plantsAlive = GameManager.Instance.GetAlivePlantsCount();
                 finalScoreText.text = $"Plants Saved: {plantsAlive}";
             }
 
-            // Fade in animation
             yield return StartCoroutine(FadeInPanel(panel, panelFadeInDuration));
+
+            // Select first button untuk controller navigation
+            if (firstButton != null)
+            {
+                EventSystem.current.SetSelectedGameObject(firstButton.gameObject);
+            }
         }
 
-        // Pause game AFTER animation
         Time.timeScale = 0f;
     }
 
@@ -169,7 +194,7 @@ public class UIManager : MonoBehaviour
 
         while (elapsed < duration)
         {
-            elapsed += Time.unscaledDeltaTime; // Use unscaled time
+            elapsed += Time.unscaledDeltaTime;
             canvasGroup.alpha = Mathf.Lerp(0f, 1f, elapsed / duration);
             yield return null;
         }
@@ -187,17 +212,29 @@ public class UIManager : MonoBehaviour
     }
 
     // ========== BUTTON ACTIONS ==========
+
     public void RestartGame()
     {
+        Debug.Log("[UI] Restarting game...");
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
+    public void RetryLevel()
+    {
+        RestartGame();
+    }
+
     public void BackToMenu()
     {
+        Debug.Log("[UI] Back to menu...");
         Time.timeScale = 1f;
 
-        // Check if MainMenu scene exists
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlayMenuMusic();
+        }
+
         if (Application.CanStreamedLevelBeLoaded("MainMenu"))
             SceneManager.LoadScene("MainMenu");
         else
@@ -209,17 +246,76 @@ public class UIManager : MonoBehaviour
 
     public void QuitGame()
     {
+        Debug.Log("[UI] Quitting game...");
 #if UNITY_EDITOR
-            UnityEditor.EditorApplication.isPlaying = false;
+        UnityEditor.EditorApplication.isPlaying = false;
 #else
         Application.Quit();
 #endif
     }
 
+    // ========== PAUSE MENU ==========
+
+    public void TogglePause()
+    {
+        if (pauseMenu == null) return;
+
+        isPaused = !isPaused;
+
+        if (isPaused)
+        {
+            // Pause
+            pauseMenu.SetActive(true);
+            Time.timeScale = 0f;
+
+            // Select first button untuk controller
+            if (pauseMenuFirstButton != null)
+            {
+                EventSystem.current.SetSelectedGameObject(pauseMenuFirstButton.gameObject);
+            }
+
+            if (AudioManager.Instance != null)
+            {
+                AudioManager.Instance.PauseMusic();
+            }
+
+            Debug.Log("[UI] Game paused");
+        }
+        else
+        {
+            // Resume
+            pauseMenu.SetActive(false);
+            if (gameHUD != null) gameHUD.SetActive(true);
+            Time.timeScale = 1f;
+
+            if (AudioManager.Instance != null)
+            {
+                AudioManager.Instance.ResumeMusic();
+            }
+
+            Debug.Log("[UI] Game resumed");
+        }
+    }
+
+    public void ResumeGame()
+    {
+        if (pauseMenu != null)
+            pauseMenu.SetActive(false);
+        if (gameHUD != null)
+            gameHUD.SetActive(true);
+
+        Time.timeScale = 1f;
+        isPaused = false;
+
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.ResumeMusic();
+        }
+
+        Debug.Log("[UI] Game resumed from button");
+    }
+
     // ========== UTILITY ==========
-    /// <summary>
-    /// Show temporary message di HUD
-    /// </summary>
     public void ShowMessage(string message, float duration = 2f)
     {
         StartCoroutine(ShowMessageCoroutine(message, duration));
@@ -227,7 +323,6 @@ public class UIManager : MonoBehaviour
 
     IEnumerator ShowMessageCoroutine(string message, float duration)
     {
-        // Bisa tambah TextMeshPro untuk notification
         Debug.Log($"[UI MESSAGE] {message}");
         yield return new WaitForSeconds(duration);
     }
